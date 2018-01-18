@@ -75,8 +75,8 @@ def test_sample_test004_ntar():
         assert blocks[0].length == -1
 
         assert len(blocks[0].options) == 2
-        assert blocks[0].options['shb_os'] == 'Windows XP\x00'  # (why NULL?)
-        assert blocks[0].options['shb_userappl'] == 'Test004.exe\x00'
+        assert blocks[0].options['shb_os'] == 'Windows XP'
+        assert blocks[0].options['shb_userappl'] == 'Test004.exe'
 
         assert len(blocks[0].interfaces) == 0
 

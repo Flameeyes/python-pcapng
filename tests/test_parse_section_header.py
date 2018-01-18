@@ -24,7 +24,6 @@ def test_read_block_sectionheader_bigendian_empty_options():
     assert block.endianness == '>'
     assert block.version == (1, 0)
     assert block.length == -1
-    assert isinstance(block.options, Options)
     assert len(block.options) == 0
     assert block.interfaces == {}
 
@@ -48,7 +47,6 @@ def test_read_block_sectionheader_littleendian_empty_options():
     assert block.endianness == '<'
     assert block.version == (1, 0)
     assert block.length == -1
-    assert isinstance(block.options, Options)
     assert len(block.options) == 0
     assert block.interfaces == {}
 
@@ -72,7 +70,6 @@ def test_read_block_sectionheader_bigendian_missing_options():
     assert block.endianness == '>'
     assert block.version == (1, 0)
     assert block.length == -1
-    assert isinstance(block.options, Options)
     assert len(block.options) == 0
     assert block.interfaces == {}
 
@@ -96,7 +93,6 @@ def test_read_block_sectionheader_littleendian_missing_options():
     assert block.endianness == '<'
     assert block.version == (1, 0)
     assert block.length == -1
-    assert isinstance(block.options, Options)
     assert len(block.options) == 0
     assert block.interfaces == {}
 
@@ -127,14 +123,9 @@ def test_read_block_sectionheader_bigendian_with_options():
     assert block.endianness == '>'
     assert block.version == (1, 0)
     assert block.length == -1
-    assert isinstance(block.options, Options)
     assert len(block.options) == 4
     assert block.options['opt_comment'] == 'Just a comment'
     assert block.interfaces == {}
-
-    assert repr(block) == (
-        "<SectionHeader version=1.0 endianness='>' length=-1 options={0}>"
-        .format(repr(block.options)))
 
 
 def test_read_block_sectionheader_littleendian_with_options():
@@ -163,11 +154,6 @@ def test_read_block_sectionheader_littleendian_with_options():
     assert block.endianness == '<'
     assert block.version == (1, 0)
     assert block.length == -1
-    assert isinstance(block.options, Options)
     assert len(block.options) == 4
     assert block.options['opt_comment'] == 'Just a comment'
     assert block.interfaces == {}
-
-    assert repr(block) == (
-        "<SectionHeader version=1.0 endianness='<' length=-1 options={0}>"
-        .format(repr(block.options)))

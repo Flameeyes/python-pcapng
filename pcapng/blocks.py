@@ -77,30 +77,13 @@ def register_block(block):
     return block
 
 
-@register_block
-class SectionHeader(Block):
-    magic_number = 0x0a0d0d0a
-    schema = [
-        ('version_major', IntField(16, False)),
-        ('version_minor', IntField(16, False)),
-        ('section_length', IntField(64, True)),
-        ('options', OptionsField([
-            (2, 'shb_hardware', 'string'),
-            (3, 'shb_os', 'string'),
-            (4, 'shb_userappl', 'string'),
-        ]))]
+class SectionHeader(object):
 
-    def __init__(self, raw, endianness):
-        self._raw = raw
-        self._decoded = None
-        self.endianness = endianness
+    def __init__(self, container):
+        self._container = container
         self._interfaces_id = itertools.count(0)
         self.interfaces = {}
         self.interface_stats = {}
-
-    def _decode(self):
-        return struct_decode(self.schema, io.BytesIO(self._raw),
-                             endianness=self.endianness)
 
     def register_interface(self, interface):
         """Helper method to register an interface within this section"""
@@ -116,20 +99,26 @@ class SectionHeader(Block):
 
     @property
     def version(self):
-        return (self.version_major, self.version_minor)
+        return (self._container.major_version, self._container.minor_version)
 
     @property
     def length(self):
-        return self.section_length
+        return self._container.section_length
+
+    @property
+    def endianness(self):
+        return self._container.endianness
+
+    @property
+    def options(self):
+        return {option.code: option.value
+                for option in self._container.options
+                if option.code != 'opt_endofopt'}
 
     def __repr__(self):
-        return ('<{name} version={version} endianness={endianness} '
-                'length={length} options={options}>').format(
+        return ('<{name} {container}>').format(
             name=self.__class__.__name__,
-            version='.'.join(str(x) for x in self.version),
-            endianness=repr(self.endianness),
-            length=self.length,
-            options=repr(self.options))
+            container=repr(self._container))
 
 
 @register_block

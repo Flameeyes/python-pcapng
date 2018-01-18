@@ -1,3 +1,5 @@
+import construct
+
 from pcapng.structs import (
     read_int, read_block_data, read_section_header, SECTION_HEADER_MAGIC)
 from pcapng.constants.block_types import BLK_RESERVED, BLK_RESERVED_CORRUPTED
@@ -35,6 +37,11 @@ class FileScanner(object):
         self.endianness = '='
 
     def __iter__(self):
+        try:
+            yield self._read_section_header()
+        except StreamEmpty:
+            return
+
         while True:
             try:
                 yield self._read_next_block()
@@ -43,12 +50,6 @@ class FileScanner(object):
 
     def _read_next_block(self):
         block_type = self._read_int(32, False)
-
-        if block_type == SECTION_HEADER_MAGIC:
-            block = self._read_section_header()
-            self.current_section = block
-            self.endianness = block.endianness
-            return block
 
         if self.current_section is None:
             raise ValueError('File not starting with a proper section header')
@@ -70,13 +71,13 @@ class FileScanner(object):
         section / endianness)
         """
 
-        section_info = read_section_header(self.stream)
-        self.endianness = section_info['endianness']  # todo: use property?
+        shb = read_section_header(self.stream)
 
-        # todo: make this use the standard schema facilities as well!
-        return blocks.SectionHeader(
-            raw=section_info['data'],
-            endianness=section_info['endianness'])
+        self.endianness = shb.endianness  # todo: use property?
+
+        self.current_section = blocks.SectionHeader(shb)
+
+        return self.current_section
 
     def _read_block(self, block_type):
         """

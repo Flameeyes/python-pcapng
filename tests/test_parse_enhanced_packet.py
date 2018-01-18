@@ -59,7 +59,6 @@ def test_read_block_enhanced_packet_bigendian():
     blocks = list(scanner)
     assert len(blocks) == 3
 
-    assert isinstance(blocks[0], SectionHeader)
     assert blocks[0].endianness == '>'
     assert blocks[0].interfaces == {0: blocks[1]}
 

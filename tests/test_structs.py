@@ -58,7 +58,7 @@ def test_read_int_truncated_stream():
 
 def test_read_section_header_big_endian():
     data = io.BytesIO(
-        # '\x0a\x0d\x0d\x0a'  # magic number has already been read..
+        b'\x0a\x0d\x0d\x0a'  # magic number has already been read..
         b'\x00\x00\x00\x1c'  # block length (28 bytes)
         b'\x1a\x2b\x3c\x4d'  # byte order magic [it's big endian!]
         b'\x00\x01\x00\x00'  # version 1.0
@@ -68,12 +68,12 @@ def test_read_section_header_big_endian():
 
     block = read_section_header(data)
     assert block['endianness'] == '>'
-    assert block['data'] == b'\x00\x01\x00\x00\xff\xff\xff\xff\xff\xff\xff\xff'
+    assert block['section_length'] == -1
 
 
 def test_read_section_header_little_endian():
     data = io.BytesIO(
-        # '\x0a\x0d\x0d\x0a'  # magic number
+        b'\x0a\x0d\x0d\x0a'  # magic number
         b'\x1c\x00\x00\x00'  # block length (28 bytes)
         b'\x4d\x3c\x2b\x1a'  # byte order magic [it's big endian!]
         b'\x01\x00\x00\x00'  # version 1.0
@@ -83,12 +83,12 @@ def test_read_section_header_little_endian():
 
     block = read_section_header(data)
     assert block['endianness'] == '<'
-    assert block['data'] == b'\x01\x00\x00\x00\xff\xff\xff\xff\xff\xff\xff\xff'
+    assert block['section_length'] == -1
 
 
 def test_read_section_header_bad_order_magic():
     data = io.BytesIO(
-        # '\x0a\x0d\x0d\x0a'  # magic number
+        b'\x0a\x0d\x0d\x0a'  # magic number
         b'\x1c\x00\x00\x00'  # block length (28 bytes)
         b'\x0B\xAD\xBE\xEF'  # byte order magic [it's big endian!]
         b'\x01\x00\x00\x00'  # version 1.0
@@ -99,14 +99,10 @@ def test_read_section_header_bad_order_magic():
     with pytest.raises(BadMagic) as ctx:
         read_section_header(data)
 
-    assert str(ctx.value) == (
-        'Wrong byte order magic: got 0x0BADBEEF, '
-        'expected 0x1A2B3C4D or 0x4D3C2B1A')
-
 
 def test_read_section_header_mismatching_lengths():
     data = io.BytesIO(
-        # '\x0a\x0d\x0d\x0a'  # magic number
+        b'\x0a\x0d\x0d\x0a'  # magic number
         b'\x00\x00\x00\x1c'  # block length (28 bytes)
         b'\x1a\x2b\x3c\x4d'  # byte order magic [it's big endian!]
         b'\x00\x01\x00\x00'  # version 1.0

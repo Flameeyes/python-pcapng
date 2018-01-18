@@ -8,6 +8,7 @@ import struct
 import warnings
 from collections import Mapping
 
+import construct
 import six
 
 from pcapng.exceptions import (
@@ -16,8 +17,6 @@ from pcapng.utils import (
     unpack_euiaddr, unpack_ipv4, unpack_ipv6, unpack_macaddr)
 
 SECTION_HEADER_MAGIC = 0x0a0d0d0a
-BYTE_ORDER_MAGIC = 0x1a2b3c4d
-BYTE_ORDER_MAGIC_INVERSE = 0x4d3c2b1a
 
 # Anything greater and we cannot safely read
 # todo: add support for this!
@@ -70,6 +69,128 @@ def read_int(stream, size, signed=False, endianness='='):
     return struct.unpack(fmt, data)[0]
 
 
+def Int16ue(endianness):
+    return construct.FormatField(endianness, 'H')
+
+
+def Int16se(endianness):
+    return construct.FormatField(endianness, 'h')
+
+
+def Int32ue(endianness):
+    return construct.FormatField(endianness, 'L')
+
+
+def Int32se(endianness):
+    return construct.FormatField(endianness, 'l')
+
+
+def Int64ue(endianness):
+    return construct.FormatField(endianness, 'Q')
+
+
+def Int64se(endianness):
+    return construct.FormatField(endianness, 'q')
+
+
+def _all_options(endianness):
+    return {
+        'opt_endofopt': construct.Bytes(0),
+        'opt_comment': construct.String(construct.this.length, 'utf-8'),
+        'shb_hardware': construct.String(construct.this.length, 'utf-8'),
+        'shb_os': construct.String(construct.this.length, 'utf-8'),
+        'shb_userappl': construct.String(construct.this.length, 'utf-8'),
+    }
+
+
+def _generic_options():
+    return {
+        'opt_endofopt': 0,
+        'opt_comment': 1,
+        'opt_custom1': 2988,
+        'opt_custom2': 2989,
+        'opt_custom3': 19372,
+        'opt_custom4': 19373,
+    }
+
+
+def _shb_options():
+    options = _generic_options()
+    options.update({
+        'shb_hardware': 2,
+        'shb_os': 3,
+        'shb_userappl': 4,
+    })
+
+    return options
+
+
+def _block_options(endianness, allowed_options):
+    return construct.RepeatUntil(
+        lambda obj, lst, ctx: obj.code == 'opt_endofopt',
+        construct.Struct(
+            'code' / construct.SymmetricMapping(
+                Int16ue(endianness),
+                allowed_options,
+                'opt_unknown',
+            ),
+            'length' / Int16ue(endianness),
+            'value' / construct.Aligned(
+                4,
+                construct.Switch(
+                    construct.this.code,
+                    _all_options(endianness),
+                    construct.Bytes(construct.this.length),
+                ),
+            ),
+        ),
+    )
+
+
+def _block(endianness, block_type, allowed_options, subcon):
+    return construct.Struct(
+        'start' / construct.Tell,
+        'block_type' / construct.Const(
+            Int32ue(endianness), block_type),
+        'block_length' / construct.Rebuild(
+            Int32ue(endianness),
+            lambda ctx: ctx.end - ctx.start),
+        construct.Aligned(4, construct.Embedded(subcon(endianness))),
+        'before_options' / construct.Tell,
+        'options' / construct.IfThenElse(
+            lambda ctx: (ctx.before_options - ctx.start) < (ctx.block_length - 4),
+            _block_options(endianness, allowed_options),
+            construct.Byte[0],
+        ),
+        'length_end' / construct.Rebuild(
+            Int32ue(endianness),
+            lambda ctx: ctx.end - ctx.start),
+        'end' / construct.Tell,
+    )
+
+
+def _section_header_block(endianness):
+    return construct.Struct(
+        'endianness' / construct.SymmetricMapping(
+            construct.Bytes(4),
+            {'>': b'\x1a\x2b\x3c\x4d', '<': b'\x4d\x3c\x2b\x1a'}),
+        'major_version' / Int16ue(endianness),
+        'minor_version' / Int16ue(endianness),
+        'section_length' / Int64se(endianness),
+    )
+
+
+_SHB_ENDIANNESS = construct.Peek(
+    construct.Struct(
+        construct.Const(b'\n\r\r\n'),
+        construct.Padding(4),
+        'endianness' / construct.SymmetricMapping(
+            construct.Bytes(4),
+            {'>': b'\x1a\x2b\x3c\x4d', '<': b'\x4d\x3c\x2b\x1a'}),
+    ),
+)
+
+
 def read_section_header(stream):
     """
     Read a section header block from a stream.
@@ -84,42 +205,23 @@ def read_section_header(stream):
         instance.
     """
 
-    # Read the length as raw bytes, then keep for later (since we
-    # don't know the section endianness yet, we cannot parse this)
-    blk_len_raw = read_bytes(stream, 4)
+    try:
+        shb_endianness = _SHB_ENDIANNESS.parse_stream(stream)
+    except construct.core.MappingError as e:
+        raise BadMagic(str(e))
 
-    # Read the "byte order magic" and see which endianness reports
-    # it correctly (should be 0x1a2b3c4d)
-    byte_order_magic = read_int(stream, 32, False, '>')  # Default BIG
-    if byte_order_magic == BYTE_ORDER_MAGIC:
-        endianness = '>'  # BIG
-    else:
-        if byte_order_magic != BYTE_ORDER_MAGIC_INVERSE:
-            # We got an invalid number..
-            raise BadMagic('Wrong byte order magic: got 0x{0:08X}, expected '
-                           '0x{1:08X} or 0x{2:08X}'
-                           .format(byte_order_magic, BYTE_ORDER_MAGIC,
-                                   BYTE_ORDER_MAGIC_INVERSE))
-        endianness = '<'  # LITTLE
+    parsed = _block(
+        shb_endianness.endianness,
+        SECTION_HEADER_MAGIC,
+        _shb_options(),
+        _section_header_block,
+    ).parse_stream(stream)
 
-    # Now we can safely decode the block length from the bytes we read earlier
-    blk_len = struct.unpack(endianness + 'I', blk_len_raw)[0]
-
-    # ..and we then just want to read the appropriate amount of raw data.
-    # Exclude: magic, len, bom, len (16 bytes)
-    payload_size = blk_len - (4 + 4 + 4 + 4)
-    block_data = read_bytes_padded(stream, payload_size)
-
-    # Double-check lenght at block end
-    blk_len2 = read_int(stream, 32, False, endianness)
-    if blk_len != blk_len2:
+    if parsed.block_length != parsed.length_end:
         raise CorruptedFile('Mismatching block lengths: {0} and {1}'
-                            .format(blk_len, blk_len2))
+                            .format(parsed.block_length, parsed.length_end))
 
-    return {
-        'endianness': endianness,
-        'data': block_data,
-    }
+    return parsed
 
 
 def read_block_data(stream, endianness):
